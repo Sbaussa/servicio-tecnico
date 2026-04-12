@@ -19,20 +19,15 @@ const CMD = {
   ALIGN_CENTER: Buffer.from([ESC, 0x61, 0x01]),
   BOLD_ON:      Buffer.from([ESC, 0x45, 0x01]),
   BOLD_OFF:     Buffer.from([ESC, 0x45, 0x00]),
-  // Doble alto (para totales grandes)
   TALL_ON:      Buffer.from([GS,  0x21, 0x01]),
   TALL_OFF:     Buffer.from([GS,  0x21, 0x00]),
-  // Doble ancho + alto (para destacar más)
-  BIG_ON:       Buffer.from([GS,  0x21, 0x11]),
-  BIG_OFF:      Buffer.from([GS,  0x21, 0x00]),
   NORMAL:       Buffer.from([GS,  0x21, 0x00]),
   CUT:          Buffer.from([GS,  0x56, 0x41, 0x03]),
   FEED3:        Buffer.from([ESC, 0x64, 0x03]),
 };
 
-// 58mm con FONT_A ≈ 42 chars — mismo tamaño legible que 80mm con FONT_B
-
-const W = 20;
+// FONT_A en 58mm = 42 chars por línea
+const W = 42;
 
 function clean(str) {
   return String(str || '')
@@ -53,7 +48,7 @@ function ln(char) {
   return txt((char || '-').repeat(W));
 }
 
-// Dos columnas ajustadas a W — label izq, valor der
+// Label izquierda, valor derecha — ambos pegados a sus bordes
 function cols(left, right) {
   var l = clean(String(left  || '')).slice(0, W - 2);
   var r = clean(String(right || '')).slice(0, W - l.length - 1);
@@ -61,20 +56,29 @@ function cols(left, right) {
   return txt(l + (spaces > 0 ? ' '.repeat(spaces) : ' ') + r);
 }
 
-// Label y valor centrados juntos como una línea
-function centerPair(label, value) {
+// "Label: valor" todo a la izquierda, truncado a W
+function field(label, value) {
   var s = clean(String(label || '')) + ' ' + clean(String(value || ''));
-  s = s.slice(0, W);
-  var pad = Math.max(0, Math.floor((W - s.length) / 2));
-  return txt(' '.repeat(pad) + s);
+  return txt(s.slice(0, W));
 }
 
-function center(str) {
-  var s   = clean(String(str || '')).slice(0, W);
-  var pad = Math.max(0, Math.floor((W - s.length) / 2));
-  return txt(' '.repeat(pad) + s);
+// field con wrap automático si el valor es largo
+function fieldWrap(label, value) {
+  var lbl = clean(String(label || ''));
+  var val = clean(String(value || ''));
+  var full = lbl + ' ' + val;
+  if (full.length <= W) return [txt(full)];
+  var firstLen = W - lbl.length - 1;
+  var lines = [txt(lbl + ' ' + val.slice(0, firstLen))];
+  var rest = val.slice(firstLen);
+  while (rest.length > 0) {
+    lines.push(txt('  ' + rest.slice(0, W - 2)));
+    rest = rest.slice(W - 2);
+  }
+  return lines;
 }
 
+// Wrap de texto largo a la izquierda
 function wrap(str) {
   var words  = clean(String(str || '')).split(' ');
   var line   = '';
@@ -89,24 +93,6 @@ function wrap(str) {
     }
   }
   if (line) result.push(txt(line.trim()));
-  return result;
-}
-
-// Wrap centrado
-function wrapCenter(str) {
-  var words  = clean(String(str || '')).split(' ');
-  var line   = '';
-  var result = [];
-  for (var i = 0; i < words.length; i++) {
-    var word = words[i];
-    if ((line + ' ' + word).trim().length > W) {
-      if (line) result.push(center(line.trim()));
-      line = word;
-    } else {
-      line = (line + ' ' + word).trim();
-    }
-  }
-  if (line) result.push(center(line.trim()));
   return result;
 }
 
@@ -229,35 +215,33 @@ router.post('/sale', auth, function(req, res) {
   var sale = req.body;
   var bufs = [];
 
-  bufs.push([CMD.INIT, CMD.FONT_A, CMD.ALIGN_CENTER]);
+  bufs.push([CMD.INIT, CMD.FONT_A, CMD.ALIGN_LEFT]);
 
-  // ── Encabezado centrado ──
-  bufs.push([CMD.BOLD_ON, center('Electronica Bonilla'), CMD.BOLD_OFF]);
-  bufs.push([center('Barranquilla, Colombia')]);
-  bufs.push([center('Calle 76f #22D-38')]);
-  bufs.push([center('Tel: 322 5251842')]);
-  bufs.push([center('CC: 72289973')]);
+  // ── Encabezado ──
+  bufs.push([CMD.BOLD_ON, txt('Electronica Bonilla'), CMD.BOLD_OFF]);
+  bufs.push([txt('Barranquilla, Colombia')]);
+  bufs.push([txt('Calle 76f #22D-38')]);
+  bufs.push([txt('Tel: 322 5251842')]);
+  bufs.push([txt('CC: 72289973')]);
   bufs.push([ln('=')]);
 
-  // ── Título centrado ──
-  bufs.push([CMD.BOLD_ON, center('FACTURA DE VENTA'), CMD.BOLD_OFF]);
-  bufs.push([CMD.BOLD_ON, center(sale.invoice_number || ''), CMD.BOLD_OFF]);
+  // ── Título ──
+  bufs.push([CMD.BOLD_ON, txt('FACTURA DE VENTA'), CMD.BOLD_OFF]);
+  bufs.push([CMD.BOLD_ON, txt(sale.invoice_number || ''), CMD.BOLD_OFF]);
   bufs.push([ln('-')]);
 
-  // ── Info: pares centrados ──
-  bufs.push([CMD.ALIGN_CENTER]);
-  bufs.push([centerPair('Fecha:', formatDate(sale.created_at))]);
-  bufs.push([centerPair('Vendedor:', clean(sale.user_name || ''))]);
+  // ── Info ──
+  bufs.push([field('Fecha:', formatDate(sale.created_at))]);
+  bufs.push([field('Vendedor:', clean(sale.user_name || ''))]);
   if (sale.client_name) {
-    var clLines = wrapCenter('Cliente: ' + sale.client_name);
+    var clLines = fieldWrap('Cliente:', sale.client_name);
     for (var c = 0; c < clLines.length; c++) bufs.push([clLines[c]]);
   }
-  if (sale.client_document) bufs.push([centerPair('Doc:', sale.client_document)]);
+  if (sale.client_document) bufs.push([field('Doc:', sale.client_document)]);
   bufs.push([ln('-')]);
 
-  // ── Items ──
-  bufs.push([CMD.ALIGN_LEFT]);
-  bufs.push([CMD.BOLD_ON, txt('PRODUCTOS:'), CMD.BOLD_OFF]);
+  // ── Productos ──
+  bufs.push([CMD.BOLD_ON, cols('PRODUCTO', 'TOTAL'), CMD.BOLD_OFF]);
   bufs.push([ln('-')]);
 
   var items = sale.items || [];
@@ -267,14 +251,11 @@ router.post('/sale', auth, function(req, res) {
     bufs.push([CMD.BOLD_ON]);
     for (var j = 0; j < nameLines.length; j++) bufs.push([nameLines[j]]);
     bufs.push([CMD.BOLD_OFF]);
-    // cantidad x precio = subtotal — centrado para que se lea bien
-    var det = item.quantity + 'x ' + formatCOP(item.unit_price) + ' = ' + formatCOP(item.subtotal);
-    bufs.push([center(det)]);
-    if (item.product_code) bufs.push([center('Cod: ' + item.product_code)]);
+    bufs.push([cols('  ' + item.quantity + 'x ' + formatCOP(item.unit_price), formatCOP(item.subtotal))]);
+    if (item.product_code) bufs.push([txt('  Cod: ' + item.product_code)]);
   }
 
   // ── Totales ──
-  bufs.push([CMD.ALIGN_LEFT]);
   bufs.push([ln('-')]);
   if ((sale.discount || 0) > 0) {
     bufs.push([cols('Subtotal:', formatCOP(sale.subtotal))]);
@@ -283,25 +264,23 @@ router.post('/sale', auth, function(req, res) {
   }
   bufs.push([ln('=')]);
 
-  // TOTAL en doble alto + negrita para que se vea grande
-  bufs.push([CMD.ALIGN_CENTER, CMD.BOLD_ON, CMD.TALL_ON]);
-  bufs.push([center('TOTAL: ' + formatCOP(sale.total))]);
+  // TOTAL doble alto
+  bufs.push([CMD.BOLD_ON, CMD.TALL_ON]);
+  bufs.push([cols('TOTAL:', formatCOP(sale.total))]);
   bufs.push([CMD.TALL_OFF, CMD.BOLD_OFF]);
 
-  bufs.push([ln('='), CMD.ALIGN_LEFT]);
-
-  // Método de pago y cambio
+  bufs.push([ln('=')]);
   bufs.push([cols('Pago ' + clean((sale.payment_method || '').toUpperCase()) + ':', formatCOP(sale.payment_received))]);
   if ((sale.change_amount || 0) > 0) {
     bufs.push([CMD.BOLD_ON, cols('CAMBIO:', formatCOP(sale.change_amount)), CMD.BOLD_OFF]);
   }
 
-  // ── Pie centrado ──
-  bufs.push([ln('-'), CMD.ALIGN_CENTER]);
-  bufs.push([CMD.BOLD_ON, center('Gracias por su compra!'), CMD.BOLD_OFF]);
-  bufs.push([center('Conserve este recibo')]);
+  // ── Pie ──
+  bufs.push([ln('-')]);
+  bufs.push([txt('Gracias por su compra!')]);
+  bufs.push([txt('Conserve este recibo')]);
   bufs.push([txt(' ')]);
-  bufs.push([center('Electronica Bonilla 2026')]);
+  bufs.push([txt('Electronica Bonilla 2026')]);
   bufs.push([CMD.FEED3, CMD.CUT]);
 
   printRaw(savedPrinter, bufs)
@@ -325,96 +304,94 @@ router.post('/repair', auth, function(req, res) {
   var r    = req.body;
   var bufs = [];
 
-  bufs.push([CMD.INIT, CMD.FONT_A, CMD.ALIGN_CENTER]);
+  bufs.push([CMD.INIT, CMD.FONT_A, CMD.ALIGN_LEFT]);
 
-  // ── Encabezado centrado ──
-  bufs.push([CMD.BOLD_ON, center('Electronica Bonilla'), CMD.BOLD_OFF]);
-  bufs.push([center('Barranquilla, Colombia')]);
-  bufs.push([center('Calle 76f #22D-38')]);
-  bufs.push([center('Tel: 322 5251842')]);
-  bufs.push([center('NIT: 72289973')]);
+  // ── Encabezado ──
+  bufs.push([CMD.BOLD_ON, txt('Electronica Bonilla'), CMD.BOLD_OFF]);
+  bufs.push([txt('Barranquilla, Colombia')]);
+  bufs.push([txt('Calle 76f #22D-38')]);
+  bufs.push([txt('Tel: 322 5251842')]);
+  bufs.push([txt('NIT: 72289973')]);
   bufs.push([ln('=')]);
 
-  // ── Título centrado ──
-  bufs.push([CMD.BOLD_ON, center('ORDEN DE REPARACION'), CMD.BOLD_OFF]);
-  bufs.push([CMD.BOLD_ON, center(r.ticket_number || ''), CMD.BOLD_OFF]);
+  // ── Título ──
+  bufs.push([CMD.BOLD_ON, txt('ORDEN DE REPARACION'), CMD.BOLD_OFF]);
+  bufs.push([CMD.BOLD_ON, txt(r.ticket_number || ''), CMD.BOLD_OFF]);
   bufs.push([ln('-')]);
 
-  // Estado centrado y destacado
+  // Estado doble alto
   var statusLabel = STATUS_LABELS[r.status] || (r.status || '').toUpperCase();
-  bufs.push([CMD.BOLD_ON, CMD.TALL_ON, center(statusLabel), CMD.TALL_OFF, CMD.BOLD_OFF]);
+  bufs.push([CMD.BOLD_ON, CMD.TALL_ON]);
+  bufs.push([txt('Estado: ' + statusLabel)]);
+  bufs.push([CMD.TALL_OFF, CMD.BOLD_OFF]);
   bufs.push([ln('-')]);
 
-  // ── Cliente centrado ──
-  bufs.push([CMD.BOLD_ON, center('-- CLIENTE --'), CMD.BOLD_OFF]);
-  var clNameLines = wrapCenter(r.client_name || 'Sin registrar');
-  for (var c = 0; c < clNameLines.length; c++) bufs.push([clNameLines[c]]);
-  if (r.client_phone) bufs.push([centerPair('Tel:', r.client_phone)]);
+  // ── Cliente ──
+  bufs.push([CMD.BOLD_ON, txt('CLIENTE:'), CMD.BOLD_OFF]);
+  var clLines = wrap(r.client_name || 'Sin registrar');
+  for (var c = 0; c < clLines.length; c++) bufs.push([clLines[c]]);
+  if (r.client_phone) bufs.push([field('Tel:', r.client_phone)]);
   bufs.push([ln('-')]);
 
-  // ── Equipo centrado ──
-  bufs.push([CMD.BOLD_ON, center('-- EQUIPO --'), CMD.BOLD_OFF]);
+  // ── Equipo ──
+  bufs.push([CMD.BOLD_ON, txt('EQUIPO:'), CMD.BOLD_OFF]);
   var deviceName  = ((r.device_brand || '') + ' ' + (r.device_model || '')).trim();
-  var deviceLines = wrapCenter(deviceName);
+  var deviceLines = wrap(deviceName);
   bufs.push([CMD.BOLD_ON]);
   for (var i = 0; i < deviceLines.length; i++) bufs.push([deviceLines[i]]);
   bufs.push([CMD.BOLD_OFF]);
-  if (r.screen_size)   bufs.push([centerPair('Pantalla:', r.screen_size + '"')]);
-  if (r.device_serial) bufs.push([centerPair('Serial:', r.device_serial)]);
+  if (r.screen_size)   bufs.push([field('Pantalla:', r.screen_size + '"')]);
+  if (r.device_serial) bufs.push([field('Serial:', r.device_serial)]);
   bufs.push([ln('-')]);
 
   // ── Problema ──
-  bufs.push([CMD.BOLD_ON, center('PROBLEMA:'), CMD.BOLD_OFF]);
-  var problemLines = wrapCenter(r.problem_desc || '');
+  bufs.push([CMD.BOLD_ON, txt('PROBLEMA:'), CMD.BOLD_OFF]);
+  var problemLines = wrap(r.problem_desc || '');
   for (var i = 0; i < problemLines.length; i++) bufs.push([problemLines[i]]);
 
-  // Accesorios
   if (r.accessories) {
-    bufs.push([CMD.BOLD_ON, center('ACCESORIOS:'), CMD.BOLD_OFF]);
-    var accLines = wrapCenter(r.accessories);
+    bufs.push([CMD.BOLD_ON, txt('ACCESORIOS:'), CMD.BOLD_OFF]);
+    var accLines = wrap(r.accessories);
     for (var i = 0; i < accLines.length; i++) bufs.push([accLines[i]]);
   }
 
-  // Diagnóstico
   if (r.diagnosis) {
-    bufs.push([ln('-'), CMD.BOLD_ON, center('DIAGNOSTICO:'), CMD.BOLD_OFF]);
-    var diagLines = wrapCenter(r.diagnosis);
+    bufs.push([ln('-')]);
+    bufs.push([CMD.BOLD_ON, txt('DIAGNOSTICO:'), CMD.BOLD_OFF]);
+    var diagLines = wrap(r.diagnosis);
     for (var i = 0; i < diagLines.length; i++) bufs.push([diagLines[i]]);
   }
 
-  // Trabajo
   if (r.work_done) {
-    bufs.push([CMD.BOLD_ON, center('TRABAJO REALIZADO:'), CMD.BOLD_OFF]);
-    var workLines = wrapCenter(r.work_done);
+    bufs.push([CMD.BOLD_ON, txt('TRABAJO REALIZADO:'), CMD.BOLD_OFF]);
+    var workLines = wrap(r.work_done);
     for (var i = 0; i < workLines.length; i++) bufs.push([workLines[i]]);
   }
 
-  // Fechas / técnico centrados
+  // ── Fechas ──
   bufs.push([ln('-')]);
-  bufs.push([centerPair('Recibido:', formatDate(r.received_at))]);
-  if (r.estimated_date)  bufs.push([centerPair('Entrega:', String(r.estimated_date).slice(0,10))]);
-  if (r.technician_name) bufs.push([centerPair('Tecnico:', r.technician_name)]);
+  bufs.push([field('Recibido:', formatDate(r.received_at))]);
+  if (r.estimated_date)  bufs.push([field('Entrega est:', String(r.estimated_date).slice(0, 10))]);
+  if (r.technician_name) bufs.push([field('Tecnico:', r.technician_name)]);
 
-  // Urgente
   if (r.priority === 'urgente') {
     bufs.push([ln('*')]);
-    bufs.push([CMD.BOLD_ON, CMD.TALL_ON, center('!! URGENTE !!'), CMD.TALL_OFF, CMD.BOLD_OFF]);
+    bufs.push([CMD.BOLD_ON, CMD.TALL_ON, txt('!! URGENTE !!'), CMD.TALL_OFF, CMD.BOLD_OFF]);
     bufs.push([ln('*')]);
   }
 
   // ── Costos ──
   if ((r.total_cost || 0) > 0 || (r.labor_cost || 0) > 0) {
     bufs.push([ln('=')]);
-    bufs.push([CMD.ALIGN_LEFT]);
-    if ((r.labor_cost || 0) > 0) bufs.push([cols('M. obra:', formatCOP(r.labor_cost))]);
+    if ((r.labor_cost || 0) > 0) bufs.push([cols('Mano de obra:', formatCOP(r.labor_cost))]);
     if ((r.parts_cost || 0) > 0) bufs.push([cols('Repuestos:', formatCOP(r.parts_cost))]);
     bufs.push([ln('-')]);
 
-    // TOTAL grande centrado
-    bufs.push([CMD.ALIGN_CENTER, CMD.BOLD_ON, CMD.TALL_ON]);
-    bufs.push([center('TOTAL: ' + formatCOP(r.total_cost))]);
+    // TOTAL doble alto
+    bufs.push([CMD.BOLD_ON, CMD.TALL_ON]);
+    bufs.push([cols('TOTAL:', formatCOP(r.total_cost))]);
     bufs.push([CMD.TALL_OFF, CMD.BOLD_OFF]);
-    bufs.push([ln('='), CMD.ALIGN_LEFT]);
+    bufs.push([ln('=')]);
 
     if ((r.advance_payment || 0) > 0) {
       bufs.push([cols('Anticipo:', formatCOP(r.advance_payment))]);
@@ -423,14 +400,14 @@ router.post('/repair', auth, function(req, res) {
     }
   }
 
-  // ── Pie centrado ──
-  bufs.push([ln('='), CMD.ALIGN_CENTER]);
-  bufs.push([center('Consultas: 322 5251842')]);
-  bufs.push([CMD.BOLD_ON, center('Ticket: ' + (r.ticket_number || '')), CMD.BOLD_OFF]);
+  // ── Pie ──
+  bufs.push([ln('=')]);
+  bufs.push([txt('Consultas: 322 5251842')]);
+  bufs.push([CMD.BOLD_ON, txt('Ticket: ' + (r.ticket_number || '')), CMD.BOLD_OFF]);
   bufs.push([txt(' ')]);
-  bufs.push([CMD.BOLD_ON, center('Gracias por confiar en nosotros!'), CMD.BOLD_OFF]);
+  bufs.push([txt('Gracias por confiar en nosotros!')]);
   bufs.push([txt(' ')]);
-  bufs.push([center('Electronica Bonilla 2026')]);
+  bufs.push([txt('Electronica Bonilla 2026')]);
   bufs.push([CMD.FEED3, CMD.CUT]);
 
   printRaw(savedPrinter, bufs)
