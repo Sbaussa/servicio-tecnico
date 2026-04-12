@@ -30,9 +30,9 @@ const CMD = {
   FEED3:        Buffer.from([ESC, 0x64, 0x03]),
 };
 
-// 58mm con FONT_B ≈ 32 chars en modo normal
-// Con BIG (doble ancho) ≈ 16 chars — solo para TOTAL y monto grande
-const W = 32;
+// 58mm con FONT_A ≈ 42 chars — mismo tamaño legible que 80mm con FONT_B
+
+const W = 42;
 
 function clean(str) {
   return String(str || '')
@@ -229,7 +229,7 @@ router.post('/sale', auth, function(req, res) {
   var sale = req.body;
   var bufs = [];
 
-  bufs.push([CMD.INIT, CMD.FONT_B, CMD.ALIGN_CENTER]);
+  bufs.push([CMD.INIT, CMD.FONT_A, CMD.ALIGN_CENTER]);
 
   // ── Encabezado centrado ──
   bufs.push([CMD.BOLD_ON, center('Electronica Bonilla'), CMD.BOLD_OFF]);
@@ -325,7 +325,7 @@ router.post('/repair', auth, function(req, res) {
   var r    = req.body;
   var bufs = [];
 
-  bufs.push([CMD.INIT, CMD.FONT_B, CMD.ALIGN_CENTER]);
+  bufs.push([CMD.INIT, CMD.FONT_A, CMD.ALIGN_CENTER]);
 
   // ── Encabezado centrado ──
   bufs.push([CMD.BOLD_ON, center('Electronica Bonilla'), CMD.BOLD_OFF]);
