@@ -46,12 +46,40 @@ function ln(char) {
   return txt((char || '-').repeat(W));
 }
 
-// Dos columnas que siempre caben en W chars — trunca la derecha si hace falta
+// Dos columnas — label corto a la izq, valor pegado a la derecha
 function cols(left, right) {
   var l = clean(String(left  || '')).slice(0, W - 2);
   var r = clean(String(right || '')).slice(0, W - l.length - 1);
   var spaces = W - l.length - r.length;
   return txt(l + (spaces > 0 ? ' '.repeat(spaces) : ' ') + r);
+}
+
+// Label + valor pegados a la izquierda, sin espacio muerto
+// Trunca si se pasa del ancho
+function field(label, value) {
+  var s = clean(String(label || '')) + ' ' + clean(String(value || ''));
+  return txt(s.slice(0, W));
+}
+
+// Label + valor pegados, con wrap si el valor es largo
+function fieldWrap(label, value) {
+  var lbl = clean(String(label || ''));
+  var val = clean(String(value || ''));
+  var full = lbl + ' ' + val;
+  if (full.length <= W) {
+    return [txt(full)];
+  }
+  // Primera linea con label + inicio del valor
+  var firstLen = W - lbl.length - 1;
+  var lines = [];
+  lines.push(txt(lbl + ' ' + val.slice(0, firstLen)));
+  // Resto del valor con indentacion de 2 espacios
+  var rest = val.slice(firstLen);
+  while (rest.length > 0) {
+    lines.push(txt('  ' + rest.slice(0, W - 2)));
+    rest = rest.slice(W - 2);
+  }
+  return lines;
 }
 
 function center(str) {
@@ -211,40 +239,50 @@ router.post('/sale', auth, function(req, res) {
   bufs.push([CMD.BOLD_ON, txt(sale.invoice_number || ''), CMD.BOLD_OFF]);
   bufs.push([ln('-')]);
 
-  // Fecha en línea propia para no cortarse
-  bufs.push([txt('Fecha: ' + formatDate(sale.created_at))]);
-  bufs.push([cols('Vendedor:', clean(sale.user_name || ''))]);
-  if (sale.client_name)     bufs.push([cols('Cliente:', sale.client_name)]);
-  if (sale.client_document) bufs.push([cols('Doc:', sale.client_document)]);
+  // Info — todo pegado a la izquierda con field()
+  bufs.push([field('Fecha:', formatDate(sale.created_at))]);
+  bufs.push([field('Vend:', sale.user_name)]);
+  if (sale.client_name) {
+    var clLines = fieldWrap('Cliente:', sale.client_name);
+    for (var c = 0; c < clLines.length; c++) bufs.push([clLines[c]]);
+  }
+  if (sale.client_document) bufs.push([field('Doc:', sale.client_document)]);
   bufs.push([ln('-')]);
 
-  // Items
-  bufs.push([CMD.BOLD_ON, cols('PRODUCTO', 'TOTAL'), CMD.BOLD_OFF]);
+  // Items — nombre, luego qty x precio y total en la misma linea
+  bufs.push([CMD.BOLD_ON, txt('PRODUCTOS:'), CMD.BOLD_OFF]);
   bufs.push([ln('-')]);
 
   var items = sale.items || [];
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
+    // Nombre del producto (wrap si es largo)
     var nameLines = wrap(item.product_name);
     bufs.push([CMD.BOLD_ON]);
     for (var j = 0; j < nameLines.length; j++) bufs.push([nameLines[j]]);
     bufs.push([CMD.BOLD_OFF]);
-    bufs.push([cols('  ' + item.quantity + 'x ' + formatCOP(item.unit_price), formatCOP(item.subtotal))]);
-    if (item.product_code) bufs.push([txt('  Cod: ' + item.product_code)]);
+    // Detalle: qty x unitario = subtotal
+    var detail = ' ' + item.quantity + 'x' + formatCOP(item.unit_price)
+               + ' =' + formatCOP(item.subtotal);
+    bufs.push([txt(detail.slice(0, W))]);
+    if (item.product_code) bufs.push([txt(' Cod: ' + item.product_code)]);
   }
 
   // Totales
   bufs.push([ln('-')]);
   if ((sale.discount || 0) > 0) {
     bufs.push([cols('Subtotal:', formatCOP(sale.subtotal))]);
-    bufs.push([cols('Descuento:', '- ' + formatCOP(sale.discount))]);
+    bufs.push([cols('Desc:', '- ' + formatCOP(sale.discount))]);
   }
   bufs.push([ln('=')]);
   bufs.push([CMD.BOLD_ON, cols('TOTAL:', formatCOP(sale.total)), CMD.BOLD_OFF]);
   bufs.push([ln('=')]);
-  bufs.push([cols('Pago ' + clean((sale.payment_method || '').toUpperCase()) + ':', formatCOP(sale.payment_received))]);
+
+  // Pago — usar field para que quede pegado
+  var pagoLabel = 'Pago ' + clean((sale.payment_method || '').toUpperCase()) + ':';
+  bufs.push([field(pagoLabel, formatCOP(sale.payment_received))]);
   if ((sale.change_amount || 0) > 0) {
-    bufs.push([CMD.BOLD_ON, cols('CAMBIO:', formatCOP(sale.change_amount)), CMD.BOLD_OFF]);
+    bufs.push([CMD.BOLD_ON, field('CAMBIO:', formatCOP(sale.change_amount)), CMD.BOLD_OFF]);
   }
 
   // Pie
@@ -292,24 +330,24 @@ router.post('/repair', auth, function(req, res) {
 
   // Estado
   var statusLabel = STATUS_LABELS[r.status] || (r.status || '').toUpperCase();
-  bufs.push([CMD.BOLD_ON, txt('Estado: ' + statusLabel), CMD.BOLD_OFF]);
+  bufs.push([CMD.BOLD_ON, field('Estado:', statusLabel), CMD.BOLD_OFF]);
   bufs.push([ln('-')]);
 
-  // Cliente
+  // Cliente — pegado a la izquierda
   bufs.push([CMD.BOLD_ON, txt('CLIENTE:'), CMD.BOLD_OFF]);
   bufs.push([txt(r.client_name || 'Sin registrar')]);
-  if (r.client_phone) bufs.push([txt('Tel: ' + r.client_phone)]);
+  if (r.client_phone) bufs.push([field('Tel:', r.client_phone)]);
   bufs.push([ln('-')]);
 
-  // Equipo
+  // Equipo — pegado a la izquierda
   bufs.push([CMD.BOLD_ON, txt('EQUIPO:'), CMD.BOLD_OFF]);
   var deviceName  = ((r.device_brand || '') + ' ' + (r.device_model || '')).trim();
   var deviceLines = wrap(deviceName);
   bufs.push([CMD.BOLD_ON]);
   for (var i = 0; i < deviceLines.length; i++) bufs.push([deviceLines[i]]);
   bufs.push([CMD.BOLD_OFF]);
-  if (r.screen_size)   bufs.push([txt('Pantalla: ' + r.screen_size + '"')]);
-  if (r.device_serial) bufs.push([txt('Serial: '   + r.device_serial)]);
+  if (r.screen_size)   bufs.push([field('Pantalla:', r.screen_size + '"')]);
+  if (r.device_serial) bufs.push([field('Serial:', r.device_serial)]);
   bufs.push([ln('-')]);
 
   // Problema
@@ -338,11 +376,11 @@ router.post('/repair', auth, function(req, res) {
     for (var i = 0; i < workLines.length; i++) bufs.push([workLines[i]]);
   }
 
-  // Fechas / tecnico — cada uno en su línea para no cortarse
+  // Fechas / tecnico — pegados a la izquierda
   bufs.push([ln('-')]);
-  bufs.push([txt('Recibido: ' + formatDate(r.received_at))]);
-  if (r.estimated_date)  bufs.push([cols('Entrega est:', String(r.estimated_date).slice(0,10))]);
-  if (r.technician_name) bufs.push([cols('Tecnico:', clean(r.technician_name))]);
+  bufs.push([field('Recibido:', formatDate(r.received_at))]);
+  if (r.estimated_date)  bufs.push([field('Entrega:', String(r.estimated_date).slice(0,10))]);
+  if (r.technician_name) bufs.push([field('Tecnico:', r.technician_name)]);
 
   // Urgente
   if (r.priority === 'urgente') {
@@ -351,11 +389,11 @@ router.post('/repair', auth, function(req, res) {
     bufs.push([ln('*'), CMD.ALIGN_LEFT]);
   }
 
-  // Costos
+  // Costos — cols para alinear montos a la derecha
   if ((r.total_cost || 0) > 0 || (r.labor_cost || 0) > 0) {
     bufs.push([ln('=')]);
-    if ((r.labor_cost || 0) > 0) bufs.push([cols('Mano de obra:', formatCOP(r.labor_cost))]);
-    if ((r.parts_cost || 0) > 0) bufs.push([cols('Repuestos:',    formatCOP(r.parts_cost))]);
+    if ((r.labor_cost || 0) > 0) bufs.push([cols('M. obra:', formatCOP(r.labor_cost))]);
+    if ((r.parts_cost || 0) > 0) bufs.push([cols('Repuestos:', formatCOP(r.parts_cost))]);
     bufs.push([ln('-')]);
     bufs.push([CMD.BOLD_ON, cols('TOTAL:', formatCOP(r.total_cost)), CMD.BOLD_OFF]);
     if ((r.advance_payment || 0) > 0) {
