@@ -32,7 +32,7 @@ const CMD = {
 
 // 58mm con FONT_A ≈ 42 chars — mismo tamaño legible que 80mm con FONT_B
 
-const W = 42;
+const W = 20;
 
 function clean(str) {
   return String(str || '')
