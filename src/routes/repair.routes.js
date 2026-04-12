@@ -1,0 +1,10 @@
+const router = require('express').Router();
+const c = require('../controllers/repair.controller');
+const { auth } = require('../middlewares/auth.middleware');
+router.use(auth);
+router.get('/', c.getAll);
+router.get('/:id', c.getById);
+router.post('/', c.create);
+router.put('/:id', c.update);
+router.patch('/:id/status', c.changeStatus);
+module.exports = router;

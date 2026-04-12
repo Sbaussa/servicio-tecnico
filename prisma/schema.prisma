@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ─────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  TECNICO
+  VENDEDOR
+  RECEPCION
+}
+
+enum DocumentType {
+  CC
+  NIT
+  CE
+  PAS
+}
+
+enum PaymentMethod {
+  EFECTIVO
+  TARJETA
+  TRANSFERENCIA
+  NEQUI
+  DAVIPLATA
+  MIXTO
+}
+
+enum SaleStatus {
+  COMPLETADA
+  ANULADA
+  PENDIENTE
+}
+
+enum RepairStatus {
+  RECIBIDO
+  DIAGNOSTICO
+  EN_REPARACION
+  ESPERANDO_REPUESTO
+  LISTO
+  ENTREGADO
+  NO_REPARA
+  GARANTIA
+}
+
+enum RepairPriority {
+  NORMAL
+  URGENTE
+}
+
+enum MovementType {
+  ENTRADA
+  SALIDA
+  AJUSTE
+  VENTA
+  REPARACION
+}
+
+// ── Models ────────────────────────────────────────────────────────
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  username  String   @unique
+  password  String
+  role      Role     @default(VENDEDOR)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  sales             Sale[]
+  repairsCreated    Repair[]          @relation("RepairCreator")
+  repairsAssigned   Repair[]          @relation("RepairTechnician")
+  repairHistories   RepairHistory[]
+  inventoryMovements InventoryMovement[]
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+  products    Product[]
+}
+
+model Supplier {
+  id          Int       @id @default(autoincrement())
+  name        String
+  contactName String?
+  phone       String?
+  email       String?
+  address     String?
+  notes       String?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  products    Product[]
+}
+
+model Product {
+  id            Int       @id @default(autoincrement())
+  code          String    @unique
+  name          String
+  description   String?
+  categoryId    Int?
+  supplierId    Int?
+  purchasePrice Decimal   @default(0) @db.Decimal(10, 2)
+  salePrice     Decimal   @db.Decimal(10, 2)
+  stock         Int       @default(0)
+  minStock      Int       @default(2)
+  unit          String    @default("und")
+  brand         String?
+  modelCompat   String?
+  imageUrl      String?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  category   Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  supplier   Supplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  saleItems  SaleItem[]
+  movements  InventoryMovement[]
+}
+
+model Client {
+  id             Int          @id @default(autoincrement())
+  name           String
+  documentType   DocumentType @default(CC)
+  document       String?      @unique
+  phone          String?
+  email          String?
+  address        String?
+  notes          String?
+  totalPurchases Decimal      @default(0) @db.Decimal(12, 2)
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  sales   Sale[]
+  repairs Repair[]
+}
+
+model Sale {
+  id              Int           @id @default(autoincrement())
+  invoiceNumber   String        @unique
+  clientId        Int?
+  userId          Int
+  subtotal        Decimal       @db.Decimal(10, 2)
+  discount        Decimal       @default(0) @db.Decimal(10, 2)
+  tax             Decimal       @default(0) @db.Decimal(10, 2)
+  total           Decimal       @db.Decimal(10, 2)
+  paymentMethod   PaymentMethod @default(EFECTIVO)
+  paymentReceived Decimal       @default(0) @db.Decimal(10, 2)
+  changeAmount    Decimal       @default(0) @db.Decimal(10, 2)
+  status          SaleStatus    @default(COMPLETADA)
+  notes           String?
+  createdAt       DateTime      @default(now())
+
+  client Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  user   User       @relation(fields: [userId], references: [id])
+  items  SaleItem[]
+}
+
+model SaleItem {
+  id          Int     @id @default(autoincrement())
+  saleId      Int
+  productId   Int?
+  productName String
+  productCode String?
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  discount    Decimal @default(0) @db.Decimal(10, 2)
+  subtotal    Decimal @db.Decimal(10, 2)
+
+  sale    Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+}
+
+model Repair {
+  id             Int            @id @default(autoincrement())
+  ticketNumber   String         @unique
+  clientId       Int?
+  userId         Int
+  technicianId   Int?
+  deviceBrand    String?
+  deviceModel    String?
+  deviceSerial   String?
+  screenSize     String?
+  problemDesc    String
+  accessories    String?
+  diagnosis      String?
+  workDone       String?
+  partsUsed      String?
+  laborCost      Decimal        @default(0) @db.Decimal(10, 2)
+  partsCost      Decimal        @default(0) @db.Decimal(10, 2)
+  totalCost      Decimal        @default(0) @db.Decimal(10, 2)
+  advancePayment Decimal        @default(0) @db.Decimal(10, 2)
+  status         RepairStatus   @default(RECIBIDO)
+  priority       RepairPriority @default(NORMAL)
+  estimatedDate  DateTime?      @db.Date
+  receivedAt     DateTime       @default(now())
+  deliveredAt    DateTime?
+  notes          String?
+
+  client     Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  user       User            @relation("RepairCreator", fields: [userId], references: [id])
+  technician User?           @relation("RepairTechnician", fields: [technicianId], references: [id], onDelete: SetNull)
+  history    RepairHistory[]
+}
+
+model RepairHistory {
+  id        Int      @id @default(autoincrement())
+  repairId  Int
+  userId    Int?
+  oldStatus String?
+  newStatus String?
+  comment   String?
+  createdAt DateTime @default(now())
+
+  repair Repair @relation(fields: [repairId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model InventoryMovement {
+  id          Int          @id @default(autoincrement())
+  productId   Int
+  userId      Int?
+  type        MovementType
+  quantity    Int
+  stockBefore Int
+  stockAfter  Int
+  reference   String?
+  notes       String?
+  createdAt   DateTime     @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
