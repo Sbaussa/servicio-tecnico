@@ -35,6 +35,6 @@ exports.me = async (req, res, next) => {
       select: { id: true, name: true, username: true, role: true },
     });
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
-    res.json(user);
+    res.json({ ...user, role: user.role.toLowerCase() });
   } catch (err) { next(err); }
 };
