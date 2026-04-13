@@ -16,14 +16,14 @@ exports.login = async (req, res, next) => {
     if (!valid) return res.status(401).json({ error: 'Credenciales inválidas' });
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, name: user.name },
+      { id: user.id, username: user.username, role: user.role.toLowerCase(), name: user.name },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
 
     res.json({
       token,
-      user: { id: user.id, name: user.name, username: user.username, role: user.role },
+      user: { id: user.id, name: user.name, username: user.username, role: user.role.toLowerCase() },
     });
   } catch (err) { next(err); }
 };
