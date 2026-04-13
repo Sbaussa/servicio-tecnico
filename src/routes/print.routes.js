@@ -29,11 +29,6 @@ const CMD = {
 // FONT_A en 80mm = 48 chars por línea
 const W = 48;
 
-// ── Funciones auxiliares (clean, txt, ln, cols, field, fieldWrap, wrap, formatCOP, formatDate) ──
-// (idénticas a tu versión original, no las repito aquí por espacio, pero se mantienen igual)
-
-// ── PowerShell winspool y printRaw ──
-// (idéntico a tu versión original)
 
 // ── Rutas ─────────────────────────────────────────────────────────
 router.get('/printers', auth, function(req, res) {
